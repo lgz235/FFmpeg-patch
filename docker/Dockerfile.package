@@ -308,7 +308,7 @@ ARG OPENVINO_URL=http://registrationcenter-download.intel.com/akdlm/irc_nas/1634
 RUN  DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y --no-install-recommends cpio joe nano sudo unzip wget less \
 libcairo2-dev libpango1.0-dev \
 libglib2.0-dev libgtk2.0-dev libswscale-dev libavcodec-dev libavformat-dev build-essential \
-libusb-1.0-0-dev
+libusb-1.0-0-dev kmod libelf-dev libusb-1.0-0
 
 #Download and unpack OpenVino
 RUN mkdir /tmp2
@@ -328,6 +328,17 @@ RUN echo "ACCEPT_EULA=accept" > /tmp2/silent.cfg                        && \
     echo "PSET_MODE=install" >> /tmp2/silent.cfg                        && \
     echo "INTEL_SW_IMPROVEMENT_PROGRAM_CONSENT=no" >> /tmp2/silent.cfg  && \
     echo "SIGNING_ENABLED=no" >> /tmp2/silent.cfg
+
+
+ARG LIBUSB_VER=v1.0.22
+ARG LIBUSB_REPO=https://github.com/libusb/libusb/archive/${LIBUSB_VER}.tar.gz
+
+RUN wget -O - ${LIBUSB_REPO} | tar xz && \
+    cd libusb* && \
+    ./autogen.sh enable_udev=no && \
+    make -j $(nproc) && \
+    cp ./libusb/.libs/libusb-1.0.so /lib/x86_64-linux-gnu/libusb-1.0.so.0
+	
 
 #Install OpenVino
 RUN /tmp2/${OPENVINO_BUNDLE}/install.sh --ignore-signature --cli-mode -s /tmp2/silent.cfg && rm -rf /tmp2
@@ -408,13 +419,19 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y -q --no-
 ADD patch /root/patch
 ARG FFMPEG_VER=n4.2
 ARG FFMPEG_REPO=https://github.com/FFmpeg/FFmpeg/archive/${FFMPEG_VER}.tar.gz
-ARG FFMPEG_VA_PATCH_V04_001=https://raw.githubusercontent.com/VCDP/FFmpeg-patch/ffmpeg4.2_va/patches/0001-ffmpeg-video-analytics-v0.4-release.patch
-ARG FFMPEG_VA_PATCH_V04_002=https://raw.githubusercontent.com/VCDP/FFmpeg-patch/ffmpeg4.2_va/patches/0002-Use-a-common-way-for-param-tags.patch
-ARG FFMPEG_VA_PATCH_V04_003=https://raw.githubusercontent.com/VCDP/FFmpeg-patch/ffmpeg4.2_va/patches/0003-C-API-related-changes-for-OpenVINO-2020.1.patch
+#ARG FFMPEG_VA_PATCH_V04_001=https://raw.githubusercontent.com/VCDP/FFmpeg-patch/ffmpeg4.2_va/patches/0001-ffmpeg-video-analytics-v0.4-release.patch
+#ARG FFMPEG_VA_PATCH_V04_002=https://raw.githubusercontent.com/VCDP/FFmpeg-patch/ffmpeg4.2_va/patches/0002-Use-a-common-way-for-param-tags.patch
+#ARG FFMPEG_VA_PATCH_V04_003=https://raw.githubusercontent.com/VCDP/FFmpeg-patch/ffmpeg4.2_va/patches/0003-C-API-related-changes-for-OpenVINO-2020.1.patch
+
+ARG FFMPEG_VA_PATCH_V04_001=https://raw.githubusercontent.com/lgz235/FFmpeg-patch/v0.7/patches/0001-ffmpeg-video-analytics-v0.4-release.patch
+ARG FFMPEG_VA_PATCH_V04_002=https://raw.githubusercontent.com/lgz235/FFmpeg-patch/v0.7/patches/0002-Use-a-common-way-for-param-tags.patch
+ARG FFMPEG_VA_PATCH_V04_003=https://raw.githubusercontent.com/lgz235/FFmpeg-patch/v0.7/patches/0003-C-API-related-changes-for-OpenVINO-2020.1.patch
 
 ARG FFMPEG_MA_RELEASE_VER=0.4.1
 ARG FFMPEG_MA_RELEASE_URL=https://github.com/VCDP/FFmpeg-patch/archive/v${FFMPEG_MA_RELEASE_VER}.tar.gz
 ARG FFMPEG_MA_PATH=/home/FFmpeg-patch-${FFMPEG_MA_RELEASE_VER}
+
+
 RUN wget -O - ${FFMPEG_MA_RELEASE_URL} | tar xz
 
 # Compile FFmpeg
@@ -429,11 +446,11 @@ RUN cd /home/FFmpeg && \
     make install DESTDIR="/home/build"
 
 # Clean up after build
-RUN rm -rf /home/build/usr/include && \
-    rm -rf /home/build/usr/share/doc && \
-    rm -rf /home/build/usr/share/gtk-doc && \
-    rm -rf /home/build/usr/share/man && \
-    find /home/build -name "*.a" -exec rm -f {} \;
+#RUN rm -rf /home/build/usr/include && \
+#    rm -rf /home/build/usr/share/doc && \
+#    rm -rf /home/build/usr/share/gtk-doc && \
+#    rm -rf /home/build/usr/share/man && \
+#    find /home/build -name "*.a" -exec rm -f {} \;
 
 FROM ubuntu:18.04
 LABEL Description="This is the base image for FFMPEG & openvino Ubuntu 18.04 LTS"
@@ -441,11 +458,13 @@ LABEL Vendor="Intel Corporation"
 WORKDIR /home
 
 # Prerequisites
-RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y -q --no-install-recommends libxv1 libxcb-shm0 libxcb-shape0 libxcb-xfixes0 libsdl2-2.0-0 libasound2 libvdpau1 libnuma1 libass-dev libssl1.0.0 libdrm2 libboost-all-dev libusb-1.0-0-dev libjson-c-dev ; \
+RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y -q --no-install-recommends libxv1 libxcb-shm0 libxcb-shape0 libxcb-xfixes0 libsdl2-2.0-0 libasound2 libvdpau1 libnuma1 libass-dev libssl1.0.0 libdrm2 libboost-all-dev libusb-1.0-0-dev libjson-c-dev build-essential autoconf automake libtool kmod libelf-dev lsb-release; \
     rm -rf /var/lib/apt/lists/*;
 
 # Install
+COPY *_hddl.sh /usr/local/bin/
 COPY --from=build /home/build /
+COPY --from=build /lib/x86_64-linux-gnu/libusb-1.0.so.0 /lib/x86_64-linux-gnu/libusb-1.0.so.0
 ENV LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri
 ENV LIBVA_DRIVER_NAME=iHD
 RUN apt-get update && apt-get install -y clinfo
